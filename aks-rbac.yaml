@@ -1,0 +1,61 @@
+# AKS + Microsoft Entra ID: Kubernetes RBAC bound to Entra groups.
+# Use this when the cluster uses Entra ID integration with *Kubernetes* RBAC
+# (not Azure RBAC for Kubernetes authorization, see README.md).
+#
+# Subjects of kind Group use the Entra group's OBJECT ID (a GUID), not its name.
+# Apply with: kubectl apply -f rbac/aks/aks-rbac.yaml
+
+# 1) Developers: read/write workloads in app-demo
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: app-demo-developer
+  namespace: app-demo
+rules:
+  - apiGroups: ["", "apps"]
+    resources: ["pods", "pods/log", "services", "deployments", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/portforward"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-demo-developer-binding
+  namespace: app-demo
+subjects:
+  - kind: Group
+    name: "00000000-0000-0000-0000-000000000001"   # Entra group object ID: app-demo-developers
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: app-demo-developer
+  apiGroup: rbac.authorization.k8s.io
+---
+# 2) Auditors: read-only using the built-in "view" ClusterRole, scoped to app-demo
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-demo-auditor-binding
+  namespace: app-demo
+subjects:
+  - kind: Group
+    name: "00000000-0000-0000-0000-000000000002"   # Entra group object ID: app-demo-auditors
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+---
+# 3) Workload identity: lets the nodeapp-sa ServiceAccount authenticate to Azure
+#    (e.g. Key Vault) via a federated managed identity, no secrets in the pod.
+#    Also requires the pod label azure.workload.identity/use: "true"
+#    in the Deployment's pod template (see README.md).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nodeapp-sa
+  namespace: app-demo
+  annotations:
+    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000003"  # managed identity client ID
